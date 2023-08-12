@@ -4,19 +4,19 @@ use actix_web_actors::ws;
 
 use client::Session;
 
-use crate::json::Message;
-
 mod server;
 mod client;
 mod message;
-mod json;
+mod socket_message;
 
-#[get("/ws")]
+#[get("/")]
 async fn entry_point(
     req: HttpRequest,
     stream: web::Payload,
     server: web::Data<Addr<server::GameServer>>,
 ) -> Result<HttpResponse, actix_web::Error> {
+    println!("Client {} connected", req.peer_addr().unwrap());
+
     ws::start(
         Session::new(server.get_ref().clone()),
         &req, 

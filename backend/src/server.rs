@@ -5,7 +5,7 @@ use rand::{rngs::ThreadRng, Rng};
 use uuid::Uuid;
 
 use crate::message::*;
-use crate::message::ServerMessage;
+use crate::message::LogMessage;
 
 #[derive(Clone)]
 pub enum GameState {
@@ -16,7 +16,7 @@ pub enum GameState {
 
 pub struct Player {
     pub name: String,
-    pub addr: Recipient<ServerMessage>,
+    pub addr: Recipient<LogMessage>,
     pub score: Option<f32>,
     pub game: Option<u32>
 }
@@ -56,7 +56,7 @@ impl GameServer {
         if let Some(game) = self.games.get(&game_id) {
             for id in &game.players {
                 if let Some(player) = self.players.get(id) {
-                    player.addr.do_send(ServerMessage(message.to_owned()));
+                    player.addr.do_send(LogMessage(message.to_owned()));
                 }
             }
         }
@@ -74,7 +74,7 @@ impl Handler<Connect> for GameServer {
         let id = Uuid::new_v4();
         
         let player = Player {
-            name: msg.name.unwrap_or_else(|| "Anonymous".to_owned()),
+            name: msg.name,
             addr: msg.recipient,
             score: None,
             game: None,
@@ -112,6 +112,7 @@ impl Handler<Disconnect> for GameServer {
 
     fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) -> Self::Result {
         if let Some(player) = self.players.remove(&msg.id) {
+            println!("{} disconnected", player.name);
             if let Some(game_id) = player.game {
                 if let Some(game) = self.games.get_mut(&game_id) {
                     game.players.retain(|id| *id != msg.id);
@@ -134,6 +135,7 @@ impl Handler<CreateGame> for GameServer {
     fn handle(&mut self, msg: CreateGame, _: &mut Context<Self>) -> Self::Result {
         let id = self.rng.gen();
         self.games.insert(id, Game::new(msg.host_id));
+        println!("Created game with id {} and host id {}", id, msg.host_id);
         id
     }
 }
@@ -153,6 +155,13 @@ impl Handler<StartGame> for GameServer {
 
             let seeker = game.players.choose(&mut self.rng).unwrap();
             game.state = GameState::Playing { seeker: *seeker };
+
+            for id in &game.players {
+                if let Some(player) = self.players.get_mut(id) {
+                    player.score = Some(0.0);
+                    player.game = Some(msg.game);
+                }
+            }
             
             return MessageResult(StartGameResponse::Success);
         }

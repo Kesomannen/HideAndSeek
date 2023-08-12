@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::server::GameServer;
 use crate::message::*;
-use crate::json::Message;
+use crate::socket_message::{ServerMessage, ClientMessage};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -14,8 +14,8 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug)]
 pub struct Session {
     hb: Instant,
-    id: Option<Uuid>,
     name: Option<String>,
+    id: Option<Uuid>,
     game: Option<u32>,
     server: Addr<GameServer>,
 }
@@ -72,7 +72,10 @@ impl Session {
                         JoinGameResponse::Ended => {
                             actor.send_error(ctx, "Could not join game: Game has already ended");
                         },
-                        JoinGameResponse::Success => actor.game = Some(game),
+                        JoinGameResponse::Success => {
+                            actor.game = Some(game);
+                            ctx.text(ServerMessage::JoinedGame{game}.to_string());
+                        },
                     }
                 } else {
                     actor.send_error(ctx, "Could not join game: Server error");
@@ -96,6 +99,7 @@ impl Session {
                 match res {
                     Ok(game) => {
                         actor.game = Some(game);
+                        ctx.text(ServerMessage::JoinedGame{game}.to_string());
                     },
                     Err(_) => {
                         actor.send_error(ctx, "Could not create game: Server error");
@@ -143,14 +147,36 @@ impl Session {
             .wait(ctx);
     }
 
+    fn connect_to_server(&mut self, name: String, ctx: &mut ws::WebsocketContext<Self>) {
+        self.name = Some(name);
+        self.server
+            .send(Connect {
+                recipient: ctx.address().recipient(),
+                name: self.name.clone().unwrap()
+            })
+            .into_actor(self)
+            .then(|res, actor, ctx| {
+                match res {
+                    Ok(id) => actor.id = Some(id),
+                    Err(_) => {
+                        actor.send_error(ctx, "Could not connect to server");
+                        ctx.stop();
+                    }
+                }
+
+                fut::ready(())
+            })
+            .wait(ctx);
+    }
+
     fn send_error(&self, ctx: &mut ws::WebsocketContext<Self>, msg: &str) {
-        println!("Sending error: {}", msg);
-        ctx.text(Message::Error{message: msg.to_owned()}.to_string() );
+        println!("Sending error to socket: {}", msg);
+        ctx.text(ServerMessage::Error{message: msg.to_owned()}.to_string() );
     }
 
     fn send_info(&self, ctx: &mut ws::WebsocketContext<Self>, msg: &str) {
-        println!("Sending info: {}", msg);
-        ctx.text(Message::Info{message: msg.to_owned()}.to_string());
+        println!("Sending info to socket: {}", msg);
+        ctx.text(ServerMessage::Info{message: msg.to_owned()}.to_string());
     }
 }
 
@@ -170,10 +196,10 @@ impl Actor for Session {
     }
 }
 
-impl Handler<ServerMessage> for Session {
+impl Handler<LogMessage> for Session {
     type Result = ();
 
-    fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: LogMessage, ctx: &mut Self::Context) -> Self::Result {
         self.send_info(ctx, msg.0.as_str());
     }
 }
@@ -197,7 +223,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Session {
                 self.hb = Instant::now();
             },
             ws::Message::Text(text) => {
-                let message: Message = match serde_json::from_str(&text) {
+                let message: ClientMessage = match serde_json::from_str(&text) {
                     Ok(m) => m,
                     Err(_) => {
                         self.send_error(ctx, format!("Invalid message: {:?}", text).as_str());
@@ -205,13 +231,13 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Session {
                     },
                 };
 
+                println!("Received message from socket: {:?}", message);
+
                 match message {
-                    Message::JoinGame { game } => self.join_game(game, ctx),
-                    Message::SetName { name } => self.name = Some(name),
-                    Message::CreateGame => self.create_game(ctx),
-                    Message::StartGame => self.start_game(ctx),
-                    Message::Info { message: _ } => (),
-                    Message::Error { message: _ } => (),
+                    ClientMessage::JoinGame { game } => self.join_game(game, ctx),
+                    ClientMessage::CreateGame => self.create_game(ctx),
+                    ClientMessage::StartGame => self.start_game(ctx),
+                    ClientMessage::Connect { name } => self.connect_to_server(name, ctx),
                 }
             },
             ws::Message::Close(reason) => {

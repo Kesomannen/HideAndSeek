@@ -3,13 +3,13 @@ use uuid::Uuid;
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct ServerMessage(pub String);
+pub struct LogMessage(pub String);
 
 #[derive(Message)]
 #[rtype(Uuid)]
 pub struct Connect {
-    pub name: Option<String>,
-    pub recipient: Recipient<ServerMessage>,
+    pub name: String,
+    pub recipient: Recipient<LogMessage>,
 }
 
 #[derive(Message)]
