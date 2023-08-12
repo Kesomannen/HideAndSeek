@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:hide_and_seek_frontend/json.dart';
 import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -24,16 +27,26 @@ class MainApp extends StatelessWidget {
 }
 
 class AppState extends ChangeNotifier {
+  final channel = WebSocketChannel.connect(
+    Uri.parse('ws://localhost:8080/ws'),
+  );
+  
   bool inGame = false;
 
-  void startGame() {
-    inGame = true; 
-    notifyListeners();
+  joinGame(int gameId) {
+    var message = Message.joinGame(gameId);
+    channel.sink.add(jsonEncode(message));
+  }
+  
+  createGame() {
+    var message = Message.createGame();
+    channel.sink.add(jsonEncode(message));
   }
 
-  void endGame() {
-    inGame = false;
-    notifyListeners();
+  @override
+  void dispose() {
+    channel.sink.close();
+    super.dispose();
   }
 }
 
@@ -63,33 +76,44 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     var state = Provider.of<AppState>(context);
-    return Form(
-      key: _formKey,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextFormField(
-            decoration: const InputDecoration(
-              hintText: 'Enter game code',
-            ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Please enter a game code';
-              }
-              return null;
-            },
+    return Column(
+      children: [
+        Form(
+          key: _formKey,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextFormField(
+                decoration: const InputDecoration(
+                  hintText: 'Enter game code',
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a game code';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  if (_formKey.currentState!.validate()) {
+                    state.joinGame(0);
+                  }
+                }, 
+                child: const Text('Join Game')
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: () {
-              if (_formKey.currentState!.validate()) {
-                state.startGame();
-              }
-            }, 
-            child: const Text('Join Game')
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 24),
+        ElevatedButton(
+          onPressed: () => {
+            state.createGame()
+          }, 
+          child: const Text('Create Game')
+        )
+      ],
     );
   }
 }
@@ -102,10 +126,6 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
-  final _channel = WebSocketChannel.connect(
-    Uri.parse('ws://localhost:8080/ws'),
-  );
-  
   @override
   Widget build(BuildContext context) {
     var state = Provider.of<AppState>(context);
@@ -114,24 +134,39 @@ class _GamePageState extends State<GamePage> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         StreamBuilder(
-          stream: _channel.stream,
+          stream: state.channel.stream,
           builder: (context, snapshot) {
-            return Text(snapshot.hasData ? 'Received message: ${snapshot.data}' : '');
+            var text = '';
+
+            if (snapshot.hasData) {
+              var map = jsonDecode(snapshot.data.toString());
+              var message = Message.fromJson(map);
+
+              switch (message.type) {
+                case MessageType.Info:
+                  text = '[INFO] ${message.data['message']}';
+                  break;
+
+                case MessageType.Error:
+                  text = '[ERROR] ${message.data['message']}';
+                  break;
+
+                default:
+                  text = 'Unknown message type';
+                  break;
+              }
+            }
+
+            return Text(text);
           },
         ),
         ElevatedButton( 
           onPressed: () => {
-            state.endGame()
+            // TODO: Implement
           }, 
           child: const Text('Leave Game')
         )
       ]
     );
-  }
-
-  @override
-  void dispose() {
-    _channel.sink.close();
-    super.dispose();
   }
 }

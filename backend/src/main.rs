@@ -1,32 +1,24 @@
 use actix::prelude::*;
-use actix_files::NamedFile;
-use actix_web::{web, App, HttpResponse, HttpServer, HttpRequest, Error, Responder, get};
+use actix_web::{web, App, HttpResponse, HttpServer, HttpRequest, get};
 use actix_web_actors::ws;
 
+use client::Session;
+
+use crate::json::Message;
+
 mod server;
-mod session;
+mod client;
+mod message;
+mod json;
 
 #[get("/ws")]
-async fn join_route(
-    req_body: String,
+async fn entry_point(
     req: HttpRequest,
     stream: web::Payload,
-    srv: web::Data<Addr<server::GameServer>>,
-) -> Result<HttpResponse, Error> {
-    println!("Incoming connection from: {:?}", req.connection_info());
-
-    let game = match usize::from_str_radix(&req_body, 10) {
-        Ok(game) => game,
-        Err(_) => {
-            return Ok(HttpResponse::BadRequest().finish());
-        }
-    };
-
+    server: web::Data<Addr<server::GameServer>>,
+) -> Result<HttpResponse, actix_web::Error> {
     ws::start(
-        session::PlayerSession::new(
-            game,
-            srv.get_ref().clone()
-        ),
+        Session::new(server.get_ref().clone()),
         &req, 
         stream
     )
@@ -40,7 +32,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(server.clone()))
-            .service(join_route)
+            .service(entry_point)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
