@@ -1,44 +1,102 @@
-class Message {
-  MessageType type;
-  Map<String, dynamic> data;
+class ClientMessage {
+    ClientEvent event;
+    Map<String, dynamic> data;
 
-  Message(this.type, this.data);
+    ClientMessage(this.event, this.data);
 
-  Message.fromJson(Map<String, dynamic> json) :
-    type = MessageType.values[json[0]],
-    data = json;
+    Map<String, dynamic> toJson() {
+      return {
+        event.toString().split('.')[1] : data.isEmpty ? null : data
+      };
+    }
 
-  Map<String, dynamic> toJson() => {
-    type.toString().split('.')[1] : data.isEmpty ? null : data
-  };
+    ClientMessage.connect(String name) :
+      event = ClientEvent.Connect,
+      data = {
+        'name': name
+      };
+    
+    ClientMessage.chat(String message) :
+        event = ClientEvent.Chat,
+        data = {
+            'message': message
+        };
 
-  Message.joinGame(int gameId) :
-    type = MessageType.JoinGame,
-    data = {
-      'game': gameId
-    };
+    ClientMessage.joinGame(int gameId) :
+        event = ClientEvent.JoinGame,
+        data = {
+            'game': gameId
+        };
 
-  Message.startGame() :
-    type = MessageType.StartGame,
-    data = {};
+    ClientMessage.leaveGame() :
+        event = ClientEvent.LeaveGame,
+        data = {};
 
-  Message.createGame() :
-    type = MessageType.CreateGame,
-    data = {};
+    ClientMessage.createGame(double x, double y, int minutes) :
+        event = ClientEvent.CreateGame,
+        data = {
+            'x' : x,
+            'y' : y,
+            'minutes': minutes
+        };
 
-  Message.connect(String name) :
-    type = MessageType.Connect,
-    data = {
-      'name': name
-    };
+    ClientMessage.startGame() :
+        event = ClientEvent.StartGame,
+        data = {};
+
+    ClientMessage.updatePosition(double x, double y) :
+        event = ClientEvent.UpdatePosition,
+        data = {
+            'x': x,
+            'y': y
+        };
+
+    ClientMessage.tagPlayer(int playerId) :
+        event = ClientEvent.TagPlayer,
+        data = {
+            'id': playerId
+        };
 }
 
-enum MessageType {
-  Info,
-  Error,
-  JoinGame,
-  JoinedGame,
-  Connect,
-  StartGame,
-  CreateGame
+enum ClientEvent {
+    Connect,
+    Chat,
+    JoinGame,
+    LeaveGame,
+    CreateGame,
+    StartGame,
+    UpdatePosition,
+    TagPlayer
+}
+
+class ServerMessage {
+    ServerEvent event;
+    Map<String, dynamic> data;
+
+    ServerMessage(this.event, this.data);
+
+    ServerMessage.fromJson(Map<String, dynamic> json) :
+        event = _getType(json.keys.first),
+        data = json.values.isEmpty ? {} : json.values.first;
+
+    ServerMessage.fromString(String type) :
+        event = _getType(type),
+        data = {};
+
+    static ServerEvent _getType(String type) {
+        return ServerEvent.values.firstWhere((e) => e.toString() == 'ServerEvent.$type');
+    }
+}
+
+enum ServerEvent {
+    Connected,
+    Chat,
+    Error,
+    JoinedGame,
+    PlayerJoined,
+    PlayerLeft,
+    LeftGame,
+    GameStarted,
+    GameUpdate,
+    GameEnded,
 }

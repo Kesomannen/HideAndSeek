@@ -15,16 +15,18 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const title = 'Hide and Seek';
-
-    return ChangeNotifierProvider(
-      create: (context) => Connection(context),
-      child: const MaterialApp(
-        title: title,
-        home: Scaffold(
+    return MaterialApp(
+      title: 'Hide and Seek',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red, brightness: Brightness.dark),
+        useMaterial3: true
+      ),
+      home: ChangeNotifierProvider(
+        create: (context) => Connection(context),
+        child: const Scaffold(
           body: PageHandler(),
         )
-      ),
+      )
     );
   }
 }
@@ -36,19 +38,24 @@ class PageHandler extends StatelessWidget {
   Widget build(BuildContext context) {
     var state = Provider.of<Connection>(context);
 
-    return Center(
-      child: Builder(
-        builder: (context) {
-          switch (state.state) {
-            case GameConnectionState.disconnected:
-              return const DisconnectedPage();
-            case GameConnectionState.connected:
-              return const ConnectedPage();
-            case GameConnectionState.inGame:
-              return const InGamePage();
-          }
-        }
-      )
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: Builder(
+            builder: (context) {
+              switch (state.state) {
+                case GameConnection.disconnected:
+                  return const DisconnectedPage();
+                case GameConnection.connected:
+                  return const ConnectedPage();
+                case GameConnection.inGame:
+                  return const InGamePage();
+              }
+            }
+          )
+        ),
+      ),
     );
   }
 }

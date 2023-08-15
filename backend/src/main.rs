@@ -7,7 +7,7 @@ use client::Session;
 mod server;
 mod client;
 mod message;
-mod socket_message;
+mod util;
 
 #[get("/")]
 async fn entry_point(
@@ -15,8 +15,6 @@ async fn entry_point(
     stream: web::Payload,
     server: web::Data<Addr<server::GameServer>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    println!("Client {} connected", req.peer_addr().unwrap());
-
     ws::start(
         Session::new(server.get_ref().clone()),
         &req, 
@@ -34,7 +32,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(server.clone()))
             .service(entry_point)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }

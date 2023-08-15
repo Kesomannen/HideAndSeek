@@ -2,11 +2,9 @@ use std::time::{Duration, Instant};
 
 use actix::prelude::*;
 use actix_web_actors::ws;
-use uuid::Uuid;
 
-use crate::server::GameServer;
+use crate::server::*;
 use crate::message::*;
-use crate::socket_message::{ServerMessage, ClientMessage};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -14,10 +12,8 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug)]
 pub struct Session {
     hb: Instant,
-    name: Option<String>,
-    id: Option<Uuid>,
-    game: Option<u32>,
-    server: Addr<GameServer>,
+    id: Option<i64>,
+    server: Addr<GameServer>
 }
 
 impl Session {
@@ -25,8 +21,6 @@ impl Session {
         Self {
             id: None,
             hb: Instant::now(),
-            name: None,
-            game: None,
             server: server_addr,
         }
     }
@@ -34,7 +28,7 @@ impl Session {
     fn heartbeat(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |actor, ctx| {
             if Instant::now().duration_since(actor.hb) > CLIENT_TIMEOUT {
-                actor.send_error(ctx, "Disconnected: Heartbeat failed");
+                actor.error(ctx, "Disconnected: heartbeat failed");
 
                 if let Some(id) = actor.id {
                     actor.server.do_send(Disconnect { id });
@@ -48,119 +42,59 @@ impl Session {
         });
     }
 
-    fn join_game(&mut self, game: u32, ctx: &mut ws::WebsocketContext<Self>) {
-        if let None = self.id {
-            self.send_error(ctx, "Could not join game: Not connected");
-            return;
-        }
-
-        self.server
-            .send(JoinGame {
-                game_id: game,
-                id: self.id.unwrap(),
-            })
-            .into_actor(self)
-            .then(move |res, actor, ctx| {
-                if let Ok(res) = res {
-                    match res {
-                        JoinGameResponse::DoesNotExist => {
-                            actor.send_error(ctx, "Could not join game: Game does not exist");
-                        },
-                        JoinGameResponse::InProgress => {
-                            actor.send_error(ctx, "Could not join game: Game is already in progress");
-                        },
-                        JoinGameResponse::Ended => {
-                            actor.send_error(ctx, "Could not join game: Game has already ended");
-                        },
-                        JoinGameResponse::Success => {
-                            actor.game = Some(game);
-                            ctx.text(ServerMessage::JoinedGame{game}.to_string());
-                        },
-                    }
-                } else {
-                    actor.send_error(ctx, "Could not join game: Server error");
+    fn send_server(
+        &mut self,
+        ctx: &mut ws::WebsocketContext<Self>,
+        event: ClientEvent,
+    ) {
+        if let Some(id) = self.id {
+            self.send_message_server(ctx, ClientMessage { sender: id, event }, |act, ctx, res| {
+                if let Some(res) = res {
+                    // forward message to client, if any
+                    act.send_client(ctx, res);
                 }
-
-                fut::ready(())
             })
-            .wait(ctx);
+        } else {
+            self.error(ctx, "Not connected");
+        }
     }
 
-    fn create_game(&mut self, ctx: &mut ws::WebsocketContext<Self>) {
-        if let None = self.id {
-            self.send_error(ctx, "Could not create game: Not connected");
-            return;
+    fn connect(&mut self, ctx: &mut ws::WebsocketContext<Self>, name: String) {
+        if let Some(_) = self.id {
+            self.error(ctx, "Already connected");
         }
 
-        self.server
-            .send(CreateGame { host_id: self.id.unwrap() })
-            .into_actor(self)
-            .then(|res, actor, ctx| {
-                match res {
-                    Ok(game) => {
-                        actor.game = Some(game);
-                        ctx.text(ServerMessage::JoinedGame{game}.to_string());
-                    },
-                    Err(_) => {
-                        actor.send_error(ctx, "Could not create game: Server error");
-                    }
-                }
-
-                fut::ready(())
-            })
-            .wait(ctx);
+        self.send_message_server(ctx, 
+            Connect { addr: ctx.address().recipient(), name }, 
+            |act, ctx, res| {
+                act.id = Some(res);
+                act.send_client(ctx, ServerEvent::Connected { id: res });
+            }
+        );
     }
 
-    fn start_game(&mut self, ctx: &mut ws::WebsocketContext<Self>) {
-        if let None = self.id {
-            self.send_error(ctx, "Could not start game: Not connected");
-            return;
-        }
-
-        if let None = self.game {
-            self.send_error(ctx, "Could not start game: Not in a game");
-            return;
-        }
-
+    fn send_message_server<F, M>(
+        &mut self,
+        ctx: &mut ws::WebsocketContext<Self>,
+        message: M,
+        handler: F
+    ) where 
+        F: FnOnce(&mut Self, &mut ws::WebsocketContext<Self>, M::Result) + 'static,
+        M: Message + 'static + Send,
+        M::Result: Send,
+        GameServer: Handler<M>,
+    {
         self.server
-            .send(StartGame { id: self.id.unwrap(), game: self.game.unwrap() })
+            .send(message)
             .into_actor(self)
-            .then(|res, actor, ctx| {
+            .then(move |res, act, ctx| {
                 match res {
-                    Ok(response) => match response {
-                        StartGameResponse::NoPermission => {
-                            actor.send_error(ctx, "Could not start game: No permission");
-                        },
-                        StartGameResponse::NotEnoughPlayers => {
-                            actor.send_error(ctx, "Could not start game: Not enough players");
-                        },
-                        StartGameResponse::DoesNotExist => {
-                            actor.send_error(ctx, "Could not start game: Game does not exist");
+                    Ok(res) => handler(act, ctx, res),
+                    Err(err) => {
+                        match err {
+                            MailboxError::Closed => act.error(ctx, "Server closed"),
+                            MailboxError::Timeout => act.error(ctx, "Server timed out")
                         }
-                        StartGameResponse::Success => (),
-                    }
-                    Err(_) => actor.send_error(ctx, "Could not start game: Server error")
-                }
-
-                fut::ready(())
-            })
-            .wait(ctx);
-    }
-
-    fn connect_to_server(&mut self, name: String, ctx: &mut ws::WebsocketContext<Self>) {
-        self.name = Some(name);
-        self.server
-            .send(Connect {
-                recipient: ctx.address().recipient(),
-                name: self.name.clone().unwrap()
-            })
-            .into_actor(self)
-            .then(|res, actor, ctx| {
-                match res {
-                    Ok(id) => actor.id = Some(id),
-                    Err(_) => {
-                        actor.send_error(ctx, "Could not connect to server");
-                        ctx.stop();
                     }
                 }
 
@@ -169,14 +103,12 @@ impl Session {
             .wait(ctx);
     }
 
-    fn send_error(&self, ctx: &mut ws::WebsocketContext<Self>, msg: &str) {
-        println!("Sending error to socket: {}", msg);
-        ctx.text(ServerMessage::Error{message: msg.to_owned()}.to_string() );
+    fn error(&self, ctx: &mut ws::WebsocketContext<Self>, msg: &str) {
+        self.send_client(ctx, ServerEvent::Error { message: msg.to_string() });
     }
 
-    fn send_info(&self, ctx: &mut ws::WebsocketContext<Self>, msg: &str) {
-        println!("Sending info to socket: {}", msg);
-        ctx.text(ServerMessage::Info{message: msg.to_owned()}.to_string());
+    fn send_client(&self, ctx: &mut ws::WebsocketContext<Self>, event: ServerEvent) {
+        ctx.text(event.to_string());
     }
 }
 
@@ -196,22 +128,23 @@ impl Actor for Session {
     }
 }
 
-impl Handler<LogMessage> for Session {
+impl Handler<ServerMessage> for Session {
     type Result = ();
 
-    fn handle(&mut self, msg: LogMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.send_info(ctx, msg.0.as_str());
+    fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
+        self.send_client(ctx, msg.event);
     }
 }
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Session {
     fn handle(&mut self, message: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         let message = match message {
-            Err(_) => {
+            Ok(m) => m,
+            Err(error) => {
+                println!("Web scoket error: {error:?}");
                 ctx.stop();
                 return;
             },
-            Ok(m) => m,
         };
 
         match message {
@@ -223,28 +156,21 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Session {
                 self.hb = Instant::now();
             },
             ws::Message::Text(text) => {
-                let message: ClientMessage = match serde_json::from_str(&text) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        self.send_error(ctx, format!("Invalid message: {:?}", text).as_str());
-                        return;
-                    },
-                };
-
-                println!("Received message from socket: {:?}", message);
-
-                match message {
-                    ClientMessage::JoinGame { game } => self.join_game(game, ctx),
-                    ClientMessage::CreateGame => self.create_game(ctx),
-                    ClientMessage::StartGame => self.start_game(ctx),
-                    ClientMessage::Connect { name } => self.connect_to_server(name, ctx),
+                if let Ok(event) = serde_json::from_str(&text) {
+                    if let ClientEvent::Connect { name } = event {
+                        self.connect(ctx, name);
+                    } else {
+                        self.send_server(ctx, event);
+                    }
+                } else {
+                    self.error(ctx, format!("Invalid event: {:?}", text).as_str());
                 }
             },
             ws::Message::Close(reason) => {
                 ctx.close(reason);
                 ctx.stop();
             },
-            _ => self.send_error(ctx, format!("Invalid message: {:?}", message).as_str())
+            _ => self.error(ctx, format!("Invalid message: {:?}", message).as_str())
         }
     }
 }

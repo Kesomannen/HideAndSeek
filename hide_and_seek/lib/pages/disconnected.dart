@@ -25,6 +25,9 @@ class _DisconnectedPageState extends State<DisconnectedPage> {
         children: [
           TextFormField(
             controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'Name'
+            ),
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Please enter a name';
@@ -32,7 +35,8 @@ class _DisconnectedPageState extends State<DisconnectedPage> {
               return null;
             },
           ),
-          ElevatedButton(onPressed: () {
+          const SizedBox(height: 20),
+          FilledButton(onPressed: () {
               if (_formKey.currentState!.validate()) {
                 connection.connect(controller.text);
               }
