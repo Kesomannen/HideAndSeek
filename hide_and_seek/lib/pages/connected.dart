@@ -34,8 +34,8 @@ class _ConnectedPageState extends State<ConnectedPage> {
             Expanded(
               child: SegmentedButton(
                 segments: const [
-                  ButtonSegment(value: _Page.create, label: Text('Create')),
                   ButtonSegment(value: _Page.join, label: Text('Join')),
+                  ButtonSegment(value: _Page.create, label: Text('Create')),
                 ], 
                 selected: { _page },
                 onSelectionChanged: (Set<_Page> newSelection) {

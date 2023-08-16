@@ -1,3 +1,5 @@
+// ignore_for_file: constant_identifier_names
+
 class ClientMessage {
     ClientEvent event;
     Map<String, dynamic> data;

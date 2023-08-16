@@ -45,11 +45,11 @@ class PageHandler extends StatelessWidget {
           child: Builder(
             builder: (context) {
               switch (state.state) {
-                case GameConnection.disconnected:
+                case GameConnectionState.disconnected:
                   return const DisconnectedPage();
-                case GameConnection.connected:
+                case GameConnectionState.connected:
                   return const ConnectedPage();
-                case GameConnection.inGame:
+                case GameConnectionState.inGame:
                   return const InGamePage();
               }
             }

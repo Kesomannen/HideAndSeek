@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hide_and_seek/location.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -9,7 +10,7 @@ import 'message.dart';
 
 const Duration _posUpdateInterval = Duration(seconds: 5);
 
-enum GameConnection {
+enum GameConnectionState {
   disconnected,
   connected,
   inGame
@@ -18,24 +19,26 @@ enum GameConnection {
 class Connection extends ChangeNotifier {
   final BuildContext _context;
 
-  GameConnection _state = GameConnection.disconnected;
+  GameConnectionState _state = GameConnectionState.disconnected;
 
   int? _playerId;
   String? _playerName;
+  double _currentDistance = 0;
 
   WebSocketChannel? _channel;
-  GameState? _gameState;
+  Game? _gameState;
 
   int? get playerId => _playerId;
   String? get playerName => _playerName;
-  bool? get isHost => _gameState?.host == _playerId;
+  bool get isHost => _gameState?.host == _playerId;
 
-  GameConnection get state => _state;
-  GameState? get gameState => _gameState;
+  GameConnectionState get state => _state;
+  Game? get game => _gameState;
+  double get currentDistance => _currentDistance;
 
   Connection(this._context);
 
-  _setState(GameConnection newState) {
+  _setState(GameConnectionState newState) {
     _state = newState;
     notifyListeners();
   }
@@ -46,13 +49,10 @@ class Connection extends ChangeNotifier {
   }
 
   send(ClientMessage message) {
-    print("Sending event: ${jsonEncode(message)}");
     _channel?.sink.add(jsonEncode(message));
   }
 
   connect(String name) {
-    print("Connecting...");
-
     _channel?.sink.close();
     _playerName = name;
 
@@ -69,19 +69,18 @@ class Connection extends ChangeNotifier {
   }
 
   void _handleEvent(event) {
-    print("Received event: $event");
     final json = jsonDecode(event);
     final message = json is String ? ServerMessage.fromString(json) : ServerMessage.fromJson(json);
   
     switch (message.event) {
       case ServerEvent.Connected:
         _playerId = message.data['id'];
-        _setState(GameConnection.connected);
+        _setState(GameConnectionState.connected);
         break;
 
       case ServerEvent.Chat:
         if (_gameState == null) break;
-        final sender = gameState!.players[message.data['sender']]?.name ?? "Unknown";
+        final sender = game!.players[message.data['sender']]?.name ?? "Unknown";
         _chat(message.data['message'], sender: sender);
         break;
       
@@ -92,7 +91,7 @@ class Connection extends ChangeNotifier {
       case ServerEvent.JoinedGame:
         final players = message.data['players'];
         
-        _gameState = GameState(
+        _gameState = Game(
           HashMap.fromIterable(players, key: (p) => p[0], value: (p) => PlayerData(p[1])),
           message.data['id'],
           message.data['x'],
@@ -102,7 +101,7 @@ class Connection extends ChangeNotifier {
 
         _gameState!.players[_playerId!] = PlayerData(_playerName!);
 
-        _setState(GameConnection.inGame);
+        _setState(GameConnectionState.inGame);
         break;
 
       case ServerEvent.PlayerJoined:
@@ -128,18 +127,21 @@ class Connection extends ChangeNotifier {
 
       case ServerEvent.LeftGame:
         _gameState = null;
-        _setState(GameConnection.connected);
+        _setState(GameConnectionState.connected);
         break;
 
       case ServerEvent.GameStarted:
         _gameState?.players[message.data['seeker']]?.isSeeker = true;
-        _gameState?.playing = true;
+        _gameState?.state = GameState.playing;
 
         _updatePositionLoop();
         notifyListeners();
         break;
       
       case ServerEvent.GameEnded:
+        _gameState?.state = GameState.ended;
+        _gameState?.winner = message.data['winner'];
+
         notifyListeners();
         break;
 
@@ -161,10 +163,12 @@ class Connection extends ChangeNotifier {
   }
 
   void _updatePositionLoop() async {
-    while (_gameState != null && _gameState!.playing) {
+    while (_gameState != null && _gameState!.state == GameState.playing) {
       try {
-        final pos = await determinePosition();  
-        send(ClientMessage.updatePosition(pos.latitude, pos.longitude));      
+        final pos = await determinePosition(); 
+        send(ClientMessage.updatePosition(pos.latitude, pos.longitude));
+        _currentDistance = Geolocator.distanceBetween(pos.latitude, pos.longitude, _gameState!.x, _gameState!.y);
+        print(_currentDistance);
       } on ServiceDisabled {
         _snackBarMessage("Location service disabled");
       } on PermissionDenied {
@@ -189,7 +193,7 @@ class Connection extends ChangeNotifier {
 
   disconnect() {
     _channel?.sink.close()
-      .then((_) => _setState(GameConnection.disconnected));
+      .then((_) => _setState(GameConnectionState.disconnected));
   }
 
   @override
@@ -199,18 +203,26 @@ class Connection extends ChangeNotifier {
   }
 }
 
-class GameState {
+class Game {
   Map<int, PlayerData> players;
   int id;
   double x, y;
 
   int host; 
   int secondsLeft;
-  bool playing;
+  GameState state;
+
+  int? winner;
 
   List<(String?, String)> messages;
 
-  GameState(this.players, this.id, this.x, this.y, this.host) : playing = false, messages = [], secondsLeft = 0;
+  Game(this.players, this.id, this.x, this.y, this.host) : state = GameState.waiting, messages = [], secondsLeft = 0;
+}
+
+enum GameState {
+  waiting,
+  playing,
+  ended
 }
 
 class PlayerData {

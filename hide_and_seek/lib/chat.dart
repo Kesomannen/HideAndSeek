@@ -17,7 +17,7 @@ class _ChatState extends State<Chat> {
   @override
   Widget build(BuildContext context) {
     final connection = Provider.of<Connection>(context);
-    final gameState = connection.gameState;
+    final gameState = connection.game;
 
     if (gameState == null) {
       return const Center(
