@@ -13,7 +13,7 @@ pub enum ClientEvent {
     StartGame,
 
     UpdatePosition { x: f64, y: f64 },
-    TagPlayer { player: i64 },
+    TagPlayer { player: i64, photo: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,15 +29,9 @@ pub enum ServerEvent {
     LeftGame,
 
     GameStarted { seeker: i64 },
-    GameUpdate { players: HashMap<i64, PlayerData>, time_left: u64, },
+    PlayerTagged { tagger: i64, tagged: i64, photo: String },
+    ScoreUpdate { scores: HashMap<i64, f32>, seconds_left: u64, },
     GameEnded { winner: i64 }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PlayerData {
-    pub name: String,
-    pub score: f32,
-    pub is_seeker: bool,
 }
 
 impl ServerEvent {

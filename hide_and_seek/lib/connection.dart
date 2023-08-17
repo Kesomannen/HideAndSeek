@@ -26,14 +26,14 @@ class Connection extends ChangeNotifier {
   double _currentDistance = 0;
 
   WebSocketChannel? _channel;
-  Game? _gameState;
+  Game? _game;
 
   int? get playerId => _playerId;
   String? get playerName => _playerName;
-  bool get isHost => _gameState?.host == _playerId;
+  bool get isHost => _game?.host == _playerId;
 
   GameConnectionState get state => _state;
-  Game? get game => _gameState;
+  Game? get game => _game;
   double get currentDistance => _currentDistance;
 
   Connection(this._context);
@@ -43,8 +43,13 @@ class Connection extends ChangeNotifier {
     notifyListeners();
   }
 
-  _chat(String message, {String? sender}) {
-    _gameState?.messages.add((sender, message));
+  _serverMessage(String message) {
+    _game?.messages.add(ChatMessage.server(message));
+    notifyListeners();
+  }
+
+  _chat(ChatMessage message) {
+    _game?.messages.add(message);
     notifyListeners();
   }
 
@@ -52,7 +57,7 @@ class Connection extends ChangeNotifier {
     _channel?.sink.add(jsonEncode(message));
   }
 
-  connect(String name) {
+  Future<void> connect(String name) async {
     _channel?.sink.close();
     _playerName = name;
 
@@ -60,12 +65,15 @@ class Connection extends ChangeNotifier {
       Uri.parse('ws://192.168.1.27:8080/'),
     );
 
-    _channel!.ready
-      .then((value) {
-        send(ClientMessage.connect(name));
-      });
+    await _channel!.ready;
+
+    send(ClientMessage.connect(name));
 
     _channel!.stream.listen(_handleEvent);
+
+    while (_state == GameConnectionState.disconnected) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
   }
 
   void _handleEvent(event) {
@@ -79,9 +87,9 @@ class Connection extends ChangeNotifier {
         break;
 
       case ServerEvent.Chat:
-        if (_gameState == null) break;
+        if (_game == null) break;
         final sender = game!.players[message.data['sender']]?.name ?? "Unknown";
-        _chat(message.data['message'], sender: sender);
+        _chat(ChatMessage(text: message.data['message'], sender: sender));
         break;
       
       case ServerEvent.Error:
@@ -91,7 +99,7 @@ class Connection extends ChangeNotifier {
       case ServerEvent.JoinedGame:
         final players = message.data['players'];
         
-        _gameState = Game(
+        _game = Game(
           HashMap.fromIterable(players, key: (p) => p[0], value: (p) => PlayerData(p[1])),
           message.data['id'],
           message.data['x'],
@@ -99,7 +107,7 @@ class Connection extends ChangeNotifier {
           message.data['host']
         );
 
-        _gameState!.players[_playerId!] = PlayerData(_playerName!);
+        _game!.players[_playerId!] = PlayerData(_playerName!);
 
         _setState(GameConnectionState.inGame);
         break;
@@ -107,74 +115,82 @@ class Connection extends ChangeNotifier {
       case ServerEvent.PlayerJoined:
         final name = message.data['name'];
         
-        _gameState?.players[message.data['id']] = PlayerData(name);
-        _chat("$name joined the game");
+        _game?.players[message.data['id']] = PlayerData(name);
+        _serverMessage("$name joined the game");
 
         notifyListeners();
         break;
 
       case ServerEvent.PlayerLeft:
-        if (_gameState == null) break;
+        if (_game == null) break;
 
-        final name = _gameState!.players[message.data['id']]?.name ?? "Unknown";
+        final name = _game!.players[message.data['id']]?.name ?? "Unknown";
 
-        _gameState?.players.remove(message.data['id']);
-        _gameState?.host = message.data['new_host'];
-        _chat("$name left the game");
+        _game?.players.remove(message.data['id']);
+        _game?.host = message.data['new_host'];
+        _serverMessage("$name left the game");
 
         notifyListeners();
         break;
 
       case ServerEvent.LeftGame:
-        _gameState = null;
+        _game = null;
         _setState(GameConnectionState.connected);
         break;
 
       case ServerEvent.GameStarted:
-        _gameState?.players[message.data['seeker']]?.isSeeker = true;
-        _gameState?.state = GameState.playing;
+        _game?.seeker = message.data['seeker'];
+        _game?.state = GameState.playing;
 
         _updatePositionLoop();
         notifyListeners();
         break;
       
       case ServerEvent.GameEnded:
-        _gameState?.state = GameState.ended;
-        _gameState?.winner = message.data['winner'];
+        _game?.state = GameState.ended;
+        _game?.winner = message.data['winner'];
 
         notifyListeners();
         break;
 
-      case ServerEvent.GameUpdate:
-        if (_gameState == null) break;
+      case ServerEvent.ScoreUpdate:
+        if (_game == null) break;
 
-        _gameState!.secondsLeft = message.data['time_left'];
+        _game!.secondsLeft = message.data['seconds_left'];
 
-        final players = message.data['players'];
-        for (final player in _gameState!.players.entries) {
-          final data = players[player.key.toString()]!;
-          player.value.score = data['score'];
-          player.value.isSeeker = data['is_seeker'];
+        final scores = message.data['scores'];
+        for (final player in _game!.players.keys) {
+          _game!.players[player]!.score = scores[player.toString()];
         }
 
+        notifyListeners();
+        break;
+      
+      case ServerEvent.PlayerTagged:
+        if (_game == null) break;
+
+        _game!.seeker = message.data['tagged'];
+        final tagger = _game!.players[message.data['tagger']]?.name ?? "Unknown";
+        final tagged = _game!.players[message.data['tagged']]?.name ?? "Unknown";
+        
+        _chat(ChatMessage(text: "$tagger tagged $tagged", image: message.data['photo']));
         notifyListeners();
         break;
     }
   }
 
   void _updatePositionLoop() async {
-    while (_gameState != null && _gameState!.state == GameState.playing) {
+    while (_game != null && _game!.state == GameState.playing) {
       try {
         final pos = await determinePosition(); 
         send(ClientMessage.updatePosition(pos.latitude, pos.longitude));
-        _currentDistance = Geolocator.distanceBetween(pos.latitude, pos.longitude, _gameState!.x, _gameState!.y);
-        print(_currentDistance);
+        _currentDistance = Geolocator.distanceBetween(pos.latitude, pos.longitude, _game!.x, _game!.y);
       } on ServiceDisabled {
         _snackBarMessage("Location service disabled");
       } on PermissionDenied {
         _snackBarMessage("No location permission");
       } on PermissionDeniedForever {
-        _snackBarMessage("No location permission");
+        _snackBarMessage("Location permission denied forever");
       }
 
       await Future.delayed(_posUpdateInterval);
@@ -186,7 +202,7 @@ class Connection extends ChangeNotifier {
       SnackBar(
         content: Text(text),
         behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(label: "Dismiss", onPressed: () {}),
+        showCloseIcon: true,
       )
     );
   }
@@ -205,6 +221,7 @@ class Connection extends ChangeNotifier {
 
 class Game {
   Map<int, PlayerData> players;
+  int? seeker;
   int id;
   double x, y;
 
@@ -214,21 +231,30 @@ class Game {
 
   int? winner;
 
-  List<(String?, String)> messages;
+  List<ChatMessage> messages;
 
   Game(this.players, this.id, this.x, this.y, this.host) : state = GameState.waiting, messages = [], secondsLeft = 0;
+}
+
+class ChatMessage {
+  String? sender;
+  String? text;
+  String? image;
+
+  ChatMessage({this.sender, this.text, this.image});
+
+  ChatMessage.server(this.text) : sender = null, image = null;
+}
+
+class PlayerData {
+  String name;
+  double score;
+
+  PlayerData(this.name) : score = 0;
 }
 
 enum GameState {
   waiting,
   playing,
   ended
-}
-
-class PlayerData {
-  String name;
-  double score;
-  bool isSeeker;
-
-  PlayerData(this.name) : score = 0, isSeeker = false;
 }

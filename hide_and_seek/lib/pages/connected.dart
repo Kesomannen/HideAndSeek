@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hide_and_seek/util.dart';
 import 'package:map_location_picker/map_location_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -27,33 +28,43 @@ class _ConnectedPageState extends State<ConnectedPage> {
   
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: SegmentedButton(
-                segments: const [
-                  ButtonSegment(value: _Page.join, label: Text('Join')),
-                  ButtonSegment(value: _Page.create, label: Text('Create')),
-                ], 
-                selected: { _page },
-                onSelectionChanged: (Set<_Page> newSelection) {
-                  setState(() => _page = newSelection.first);
-                }
+    return EdgePadding(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SegmentedButton(
+                  segments: const [
+                    ButtonSegment(
+                      value: _Page.join, 
+                      label: Text('Join'),
+                      icon: Icon(Icons.search)
+                    ),
+                    ButtonSegment(
+                      value: _Page.create, 
+                      label: Text('Create'),
+                      icon: Icon(Icons.add)
+                    ),
+                  ], 
+                  selected: { _page },
+                  onSelectionChanged: (Set<_Page> newSelection) {
+                    setState(() => _page = newSelection.first);
+                  }
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        Builder(builder: (context) {
-          if (_page == _Page.create) {
-            return const CreateGamePage();
-          } else {
-            return const JoinGamePage();
-          }
-        })
-      ],
+            ],
+          ),
+          const SizedBox(height: 32),
+          Builder(builder: (context) {
+            if (_page == _Page.create) {
+              return const CreateGamePage();
+            } else {
+              return const JoinGamePage();
+            }
+          })
+        ],
+      ),
     );
   }
 }
@@ -85,7 +96,7 @@ class _CreateGamePageState extends State<CreateGamePage> {
           TextFormField(
             controller: _gameLengthController,
             decoration: const InputDecoration(
-              labelText: 'Game Length (minutes)'
+              labelText: 'Game length (minutes)'
             ),
             keyboardType: TextInputType.number,
             inputFormatters: [
@@ -121,9 +132,9 @@ class _CreateGamePageState extends State<CreateGamePage> {
             showClearButton: false,
             hideBackButton: true,
             searchHintText: 'Search for a location',
-            onGetDetailsByPlaceId: (result) {
-              if (result != null) {
-                setState(() => _selectedPlace = result.result);
+            onGetDetailsByPlaceId: (response) {
+              if (response != null) {
+                setState(() => _selectedPlace = response.result);
               }
             },
             onReset: () {
@@ -173,7 +184,7 @@ class _JoinGamePageState extends State<JoinGamePage> {
           TextFormField(
             controller: _controller,
             decoration: const InputDecoration(
-              labelText: 'Game Code',
+              labelText: 'Game code',
               hintText: '12345'
             ),
             keyboardType: TextInputType.number,

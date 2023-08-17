@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hide_and_seek/util.dart';
 import 'package:provider/provider.dart';
 
 import '../connection.dart';
@@ -13,11 +14,27 @@ class DisconnectedPage extends StatefulWidget {
 class _DisconnectedPageState extends State<DisconnectedPage> {
   final controller = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+
+  Future<void>? _connectFuture;
   
   @override
   Widget build(BuildContext context) {
     var connection = Provider.of<Connection>(context);
 
+    return EdgePadding(
+      child: FutureBuilder(
+        future: _connectFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.none) {
+            return enterNameForm(connection);
+          } 
+          return const Center(child: CircularProgressIndicator());
+        },
+      ),
+    );
+  }
+
+  Form enterNameForm(Connection connection) {
     return Form(
       key: _formKey,
       child: Column(
@@ -33,18 +50,18 @@ class _DisconnectedPageState extends State<DisconnectedPage> {
                 return 'Please enter a name';
               }
               return null;
-            },
+            }
           ),
           const SizedBox(height: 20),
           FilledButton(onPressed: () {
               if (_formKey.currentState!.validate()) {
-                connection.connect(controller.text);
+                _connectFuture = connection.connect(controller.text);
               }
             }, 
             child: const Text('Connect')
           )
         ],
-      ),
+      )
     );
   }
 

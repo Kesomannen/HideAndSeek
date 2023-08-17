@@ -1,5 +1,9 @@
 // ignore_for_file: constant_identifier_names
 
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
 class ClientMessage {
     ClientEvent event;
     Map<String, dynamic> data;
@@ -53,10 +57,11 @@ class ClientMessage {
             'y': y
         };
 
-    ClientMessage.tagPlayer(int playerId) :
+    ClientMessage.tagPlayer(int playerId, Uint8List photo) :
         event = ClientEvent.TagPlayer,
         data = {
-            'id': playerId
+            'player': playerId,
+            'photo': base64Encode(photo)
         };
 }
 
@@ -68,7 +73,7 @@ enum ClientEvent {
     CreateGame,
     StartGame,
     UpdatePosition,
-    TagPlayer
+    TagPlayer,
 }
 
 class ServerMessage {
@@ -99,6 +104,7 @@ enum ServerEvent {
     PlayerLeft,
     LeftGame,
     GameStarted,
-    GameUpdate,
+    PlayerTagged,
+    ScoreUpdate,
     GameEnded,
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hide_and_seek/camera.dart';
 import 'package:provider/provider.dart';
 
 import 'package:hide_and_seek/connection.dart';
@@ -7,6 +8,7 @@ import 'package:hide_and_seek/pages/disconnected.dart';
 import 'package:hide_and_seek/pages/in_game.dart';
 
 void main() {
+  initializeCameras();
   runApp(const MainApp());
 }
 
@@ -18,7 +20,7 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       title: 'Hide and Seek',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple, brightness: Brightness.dark),
         useMaterial3: true
       ),
       home: ChangeNotifierProvider(
@@ -39,22 +41,19 @@ class PageHandler extends StatelessWidget {
     var state = Provider.of<Connection>(context);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Center(
-          child: Builder(
-            builder: (context) {
-              switch (state.state) {
-                case GameConnectionState.disconnected:
-                  return const DisconnectedPage();
-                case GameConnectionState.connected:
-                  return const ConnectedPage();
-                case GameConnectionState.inGame:
-                  return const InGamePage();
-              }
+      child: Center(
+        child: Builder(
+          builder: (context) {
+            switch (state.state) {
+              case GameConnectionState.disconnected:
+                return const DisconnectedPage();
+              case GameConnectionState.connected:
+                return const ConnectedPage();
+              case GameConnectionState.inGame:
+                return const InGamePage();
             }
-          )
-        ),
+          }
+        )
       ),
     );
   }

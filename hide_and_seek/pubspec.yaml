@@ -16,6 +16,7 @@ dependencies:
   geodesy: ^0.5.0
   map_location_picker: ^1.2.0
   geolocator: ^9.0.2
+  camera: ^0.10.5+3
 
 dev_dependencies:
   flutter_test:

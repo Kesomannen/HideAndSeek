@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:hide_and_seek/message.dart';
 import 'package:provider/provider.dart';
@@ -34,11 +36,18 @@ class _ChatState extends State<Chat> {
             itemBuilder: (context, index) {
               final reversedIndex = gameState.messages.length - index - 1;
               final message = gameState.messages[reversedIndex];
-              final senderText = message.$1 == null ? null : Text(message.$1!);
+
+              final senderText = message.sender == null ? null : Text(message.sender!);
+              final subtitleText = message.sender == null ? null : Text(message.text!);
+              final image = message.image == null ? null : Image.memory(base64Decode(message.image!));
+
+              final isThreeLine = senderText != null && subtitleText != null && image != null;
 
               return ListTile(
+                leading: image,
                 title: senderText,
-                subtitle: Text(message.$2),
+                subtitle: subtitleText,
+                isThreeLine: isThreeLine,
               );
             },
           ),

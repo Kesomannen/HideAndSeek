@@ -1,10 +1,7 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::{cmp::Ordering, collections::HashMap, time::{Duration, Instant}};
 use actix::prelude::*;
 use geo::{Point, GeodesicDistance};
-use rand::seq::SliceRandom;
-use rand::rngs::ThreadRng;
+use rand::{seq::SliceRandom, rngs::ThreadRng};
 
 use crate::message::*;
 use crate::util::generate_id;
@@ -19,10 +16,7 @@ enum GameState {
         start: Instant,
         scores: HashMap<i64, f32>,
     },
-    Ended { 
-        winner: i64,
-        scores: HashMap<i64, f32>, 
-    },
+    Ended
 }
 
 struct Player {
@@ -57,29 +51,6 @@ impl Game {
             host, pos, players, length,
             state: GameState::Waiting,
         }
-    }
-
-    fn player_data(&self, all_players: &HashMap<i64, Player>) -> Option<HashMap<i64, PlayerData>> {
-        if let GameState::Playing { scores, .. } = &self.state {
-            return Some(self.players.iter().map(move |id| {
-                let player = all_players.get(id).unwrap();
-                let score = *scores.get(id).unwrap_or(&0.0);
-    
-                let is_seeker = match self.state {
-                    GameState::Waiting => false,
-                    GameState::Playing { seeker, .. } => *id == seeker,
-                    GameState::Ended { .. } => false,
-                };
-    
-                (*id, PlayerData {
-                    score,
-                    is_seeker,
-                    name: player.name.clone(),
-                })
-            }).collect());
-        }
-
-        None
     }
 }
 
@@ -167,7 +138,7 @@ impl GameServer {
                     },
                 };
 
-                game.state = GameState::Ended { winner, scores: scores.clone() };
+                game.state = GameState::Ended;
                 self.broadcast(id, ServerEvent::GameEnded { winner }, None);
             }
         }
@@ -184,7 +155,7 @@ impl GameServer {
             _ => return,
         };
 
-        for (id, score) in scores {
+        for (id, score) in &mut *scores {
             if *id == seeker {
                 continue;
             }
@@ -200,11 +171,10 @@ impl GameServer {
 
         let ended = Instant::now().duration_since(start) >= game.length;
         let time_left = game.length.as_secs() - Instant::now().duration_since(start).as_secs();
-        let player_data = game.player_data(&self.players).unwrap();
 
-        let update = ServerEvent::GameUpdate {
-            time_left,
-            players: player_data,
+        let update = ServerEvent::ScoreUpdate {
+            seconds_left: time_left,
+            scores: scores.clone(),
         };
 
         self.broadcast(game_id, update, None);
@@ -228,7 +198,7 @@ impl Handler<ClientMessage> for GameServer {
             ClientEvent::CreateGame { x, y, minutes } => self.create(msg.sender, Point::new(x, y), minutes),
             ClientEvent::StartGame => self.start(ctx, msg.sender),
             ClientEvent::UpdatePosition { x, y } => self.set_pos(msg.sender, Point::new(x, y)),
-            ClientEvent::TagPlayer { player: id } => self.tag(ctx, msg.sender, id),
+            ClientEvent::TagPlayer { player, photo } => self.tag(ctx, msg.sender, player, photo),
         };
 
         return MessageResult(response);
@@ -307,7 +277,13 @@ impl GameServer {
                 let mut new_host = game.host;
                 game.players.retain(|&id| id != player_id);
 
-                if game.players.is_empty() {
+                if let GameState::Playing { ref mut seeker, .. } = &mut game.state {
+                    if game.players.len() < 2 {
+                        self.end_game(ctx, game_id);
+                    } else if *seeker == player_id {
+                        *seeker = *game.players.choose(&mut self.rng).unwrap();
+                    }
+                } else if game.players.is_empty() {
                     self.cancel_game(ctx, game_id);
                 } else if game.host == player_id {
                     game.host = game.players[0];
@@ -366,7 +342,7 @@ impl GameServer {
         None
     }
 
-    fn tag(&mut self, _: &mut Context<GameServer>, player_id: i64, other_id: i64) -> Option<ServerEvent> {
+    fn tag(&mut self, _: &mut Context<GameServer>, player_id: i64, other_id: i64, photo: String) -> Option<ServerEvent> {
         if let Some(game_id) = self.find_game(player_id) {
             if let Some(game) = self.games.get_mut(&game_id) {
                 if let GameState::Playing { ref mut seeker, .. } = game.state {
@@ -376,6 +352,7 @@ impl GameServer {
 
                     if game.players.contains(&other_id) {
                         *seeker = other_id;
+                        self.broadcast(game_id, ServerEvent::PlayerTagged { tagger: player_id, tagged: other_id, photo }, None);
                     } 
                 }
             }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hide_and_seek/camera.dart';
 import 'package:hide_and_seek/chat.dart';
 import 'package:hide_and_seek/message.dart';
 import 'package:hide_and_seek/util.dart';
@@ -7,8 +8,15 @@ import 'package:provider/provider.dart';
 
 import '../connection.dart';
 
-class InGamePage extends StatelessWidget {
+class InGamePage extends StatefulWidget {
   const InGamePage({super.key});
+
+  @override
+  State<InGamePage> createState() => _InGamePageState();
+}
+
+class _InGamePageState extends State<InGamePage> {
+  int _currentPageIndex = 1;
 
   @override
   Widget build(BuildContext context) {
@@ -31,24 +39,26 @@ class InGamePage extends StatelessWidget {
     }
   }
 
-  Center lobby(ThemeData theme, BuildContext context, Connection connection) {
+  Widget lobby(ThemeData theme, BuildContext context, Connection connection) {
     final onBackground = theme.colorScheme.onBackground;
     final id = connection.game?.id.toString();
   
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Game code',
-            style: theme.textTheme.labelMedium,
-          ),
-          gameCode(id, theme, onBackground, context),
-          Expanded(flex: 1, child: playerList(connection, theme, onBackground)),
-          const Expanded(flex: 2, child: Chat()),
-          const SizedBox(height: 16.0),
-          lobbyButtons(connection)
-        ],
+    return EdgePadding(
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Game code',
+              style: theme.textTheme.labelMedium,
+            ),
+            gameCode(id, theme, onBackground, context),
+            Expanded(flex: 1, child: playerList(connection, theme, onBackground)),
+            const Expanded(flex: 2, child: Chat()),
+            const SizedBox(height: 16.0),
+            lobbyButtons(connection)
+          ],
+        ),
       ),
     );
   }
@@ -106,6 +116,7 @@ class InGamePage extends StatelessWidget {
               const SnackBar(
                 content: Text('Copied game code to clipboard'),
                 behavior: SnackBarBehavior.floating,
+                showCloseIcon: true,
               ),
             );
           }, icon: Icon(
@@ -117,15 +128,53 @@ class InGamePage extends StatelessWidget {
       ],
     );
   }
-  
+
   Widget playing(ThemeData theme, BuildContext context, Connection connection) {
+    return Column(
+      children: [
+        Expanded(
+          flex: 2,
+          child: EdgePadding(
+            child: switch (_currentPageIndex) {
+              0 => settings(theme, connection),
+              1 => leaderboard(theme, connection),
+              2 => const Chat(),
+              _ => throw Exception('Invalid page index $_currentPageIndex')
+            }
+          ),
+        ),
+        NavigationBar(destinations: const [
+            NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+            NavigationDestination(icon: Icon(Icons.leaderboard), label: 'Leaderboard'),
+            NavigationDestination(icon: Icon(Icons.chat), label: 'Chat'),
+          ],
+          selectedIndex: _currentPageIndex,
+          onDestinationSelected: (int index) => setState(() =>_currentPageIndex = index ),
+        )
+      ],
+    );
+  }
+ 
+  Widget settings(ThemeData theme, Connection connection) {
+    return Column(
+      children: [
+        OutlinedGameButton('Leave', onPressed: () {
+          return connection.send(ClientMessage.leaveGame());
+        }),
+      ],
+    );
+  }
+
+  Widget leaderboard(ThemeData theme, Connection connection) {
     final gameState = connection.game!;
     final durationLeft = Duration(seconds: gameState.secondsLeft);
 
     final playerData = gameState.players[connection.playerId]!;
-    final isSeeker = playerData.isSeeker;
+    final isSeeker = gameState.seeker == connection.playerId;
     final score = playerData.score;
-    
+
+    final navigator = Navigator.of(context);
+
     return Column(
       children: [
         Text(
@@ -140,17 +189,83 @@ class InGamePage extends StatelessWidget {
           isSeeker ? 'Seek!' : 'Hide! (distance: ${connection.currentDistance.toInt()}m)',
           style: theme.textTheme.labelLarge
         ),
+        const SizedBox(height: 16),
         Expanded(
           flex: 1,
-          child: scoreList(gameState, connection, theme, (_, data) {
-            return data.isSeeker ? Icons.remove_red_eye : Icons.person;
-          }, (_, data) {
-            return data.isSeeker ? Colors.red : theme.colorScheme.onBackground;
+          child: scoreList(gameState, connection, theme, (id, _) {
+            return id == gameState.seeker ? Icons.remove_red_eye : Icons.person;
+          }, (id, _) {
+            return id == gameState.seeker ? Colors.red : theme.colorScheme.onBackground;
           }),
         ),
-        const Expanded(flex: 2, child: Chat()),
+        if (isSeeker) ...[
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              FloatingActionButton.large(
+                onPressed: () {
+                  if (mainCamera == null) {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const AlertDialog(
+                        title: Text('Camera not available'),
+                        content: Text('Please allow camera access in your settings'),
+                      ),
+                    );
+                  } else {
+                    navigator.push(MaterialPageRoute(builder: (context) {
+                      return TakePictureScreen(
+                        camera: mainCamera!,
+                        onPictureTaken: (photo) => showTagModal(context, connection, theme, photo)
+                      );
+                    }));
+                  }
+                },
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.camera),
+                    Text('Tag'),
+                  ],
+                )
+              ),
+            ],
+          ),
+        ]
       ],
     );
+  }
+
+  showTagModal(BuildContext context, Connection connection, ThemeData theme, Uint8List photo) {
+    return {
+      showModalBottomSheet(
+        context: context,
+        builder: (context) => EdgePadding(
+          child: Column(
+            children: [
+              Text('Who did you find?', style: theme.textTheme.titleLarge),
+              Expanded(
+                flex: 1,
+                child: ListView(
+                  children: [
+                    for (var player in connection.game!.players.entries)
+                      ListTile(
+                        title: Text(player.value.name),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          Navigator.of(context).pop();
+                          connection.send(ClientMessage.tagPlayer(player.key, photo));
+                        },
+                      ),
+                  ],
+                ),
+              ),        
+            ],
+          ),
+        )
+      )
+    };
   }
 
   ListView scoreList(Game gameState, Connection connection, ThemeData theme, Function(int, PlayerData) getIconData, Function(int, PlayerData) getColor) {
@@ -163,7 +278,7 @@ class InGamePage extends StatelessWidget {
           ListTile(
             title: Text(
               player.value.name + (player.key == connection.playerId ? ' (you)' : ''),
-              style: theme.textTheme.labelMedium!.copyWith(
+              style: theme.textTheme.labelLarge!.copyWith(
                 color: getColor(player.key, player.value)
               ),
             ),
@@ -181,31 +296,33 @@ class InGamePage extends StatelessWidget {
       ],
     );
   }
-  
+
   Widget ended(ThemeData theme, BuildContext context, Connection connection) {
     final winner = connection.game!.winner;
 
-    return Column(
-      children: [
-        Text('Game over!', style: theme.textTheme.headlineLarge),
-        Text(
-          connection.game!.winner == connection.playerId ? 'You won!' : 'You lost!',
-          style: theme.textTheme.labelLarge
-        ),
-        Expanded(
-          flex: 1,
-          child: scoreList(connection.game!, connection, theme, (id, _) {
-            return winner == id ? Icons.star : Icons.person;
-          }, (id, _) {
-            return winner == id ? Colors.amber : theme.colorScheme.onBackground;
+    return EdgePadding(
+      child: Column(
+        children: [
+          Text('Game over', style: theme.textTheme.headlineLarge),
+          Text(
+            connection.game!.winner == connection.playerId ? 'You won!' : 'You lost!',
+            style: theme.textTheme.labelLarge
+          ),
+          Expanded(
+            flex: 1,
+            child: scoreList(connection.game!, connection, theme, (id, _) {
+              return winner == id ? Icons.star : Icons.person;
+            }, (id, _) {
+              return winner == id ? Colors.amber : theme.colorScheme.onBackground;
+            }),
+          ),
+          const Expanded(flex: 2, child: Chat()),
+          const SizedBox(height: 16,),
+          OutlinedGameButton('Leave', onPressed: () {
+            return connection.send(ClientMessage.leaveGame());
           }),
-        ),
-        const Expanded(flex: 2, child: Chat()),
-        const SizedBox(height: 16,),
-        OutlinedGameButton('Leave', onPressed: () {
-          return connection.send(ClientMessage.leaveGame());
-        }),
-      ],
+        ],
+      ),
     );
   }
 }
