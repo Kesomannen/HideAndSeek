@@ -198,7 +198,7 @@ impl Handler<ClientMessage> for GameServer {
             ClientEvent::CreateGame { x, y, minutes } => self.create(msg.sender, Point::new(x, y), minutes),
             ClientEvent::StartGame => self.start(ctx, msg.sender),
             ClientEvent::UpdatePosition { x, y } => self.set_pos(msg.sender, Point::new(x, y)),
-            ClientEvent::TagPlayer { player, photo } => self.tag(ctx, msg.sender, player, photo),
+            ClientEvent::TagPlayer { player } => self.tag(msg.sender, player),
         };
 
         return MessageResult(response);
@@ -342,7 +342,7 @@ impl GameServer {
         None
     }
 
-    fn tag(&mut self, _: &mut Context<GameServer>, player_id: i64, other_id: i64, photo: String) -> Option<ServerEvent> {
+    fn tag(&mut self, player_id: i64, other_id: i64) -> Option<ServerEvent> {
         if let Some(game_id) = self.find_game(player_id) {
             if let Some(game) = self.games.get_mut(&game_id) {
                 if let GameState::Playing { ref mut seeker, .. } = game.state {
@@ -352,7 +352,8 @@ impl GameServer {
 
                     if game.players.contains(&other_id) {
                         *seeker = other_id;
-                        self.broadcast(game_id, ServerEvent::PlayerTagged { tagger: player_id, tagged: other_id, photo }, None);
+                        self.broadcast(game_id, ServerEvent::PlayerTagged { tagger: player_id, tagged: other_id }, None);
+                        return None;
                     } 
                 }
             }

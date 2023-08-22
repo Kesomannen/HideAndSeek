@@ -32,7 +32,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(server.clone()))
             .service(entry_point)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", 2369))?
     .run()
     .await
 }

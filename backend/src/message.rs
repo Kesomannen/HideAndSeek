@@ -13,7 +13,7 @@ pub enum ClientEvent {
     StartGame,
 
     UpdatePosition { x: f64, y: f64 },
-    TagPlayer { player: i64, photo: String },
+    TagPlayer { player: i64 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -29,7 +29,7 @@ pub enum ServerEvent {
     LeftGame,
 
     GameStarted { seeker: i64 },
-    PlayerTagged { tagger: i64, tagged: i64, photo: String },
+    PlayerTagged { tagger: i64, tagged: i64 },
     ScoreUpdate { scores: HashMap<i64, f32>, seconds_left: u64, },
     GameEnded { winner: i64 }
 }

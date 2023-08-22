@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hide_and_seek/camera.dart';
 import 'package:hide_and_seek/chat.dart';
 import 'package:hide_and_seek/message.dart';
 import 'package:hide_and_seek/util.dart';
@@ -137,7 +136,7 @@ class _InGamePageState extends State<InGamePage> {
           child: EdgePadding(
             child: switch (_currentPageIndex) {
               0 => settings(theme, connection),
-              1 => leaderboard(theme, connection),
+              1 => leaderboardPage(theme, connection),
               2 => const Chat(),
               _ => throw Exception('Invalid page index $_currentPageIndex')
             }
@@ -165,7 +164,7 @@ class _InGamePageState extends State<InGamePage> {
     );
   }
 
-  Widget leaderboard(ThemeData theme, Connection connection) {
+  Widget leaderboardPage(ThemeData theme, Connection connection) {
     final gameState = connection.game!;
     final durationLeft = Duration(seconds: gameState.secondsLeft);
 
@@ -205,30 +204,9 @@ class _InGamePageState extends State<InGamePage> {
             children: [
               FloatingActionButton.large(
                 onPressed: () {
-                  if (mainCamera == null) {
-                    showDialog(
-                      context: context,
-                      builder: (context) => const AlertDialog(
-                        title: Text('Camera not available'),
-                        content: Text('Please allow camera access in your settings'),
-                      ),
-                    );
-                  } else {
-                    navigator.push(MaterialPageRoute(builder: (context) {
-                      return TakePictureScreen(
-                        camera: mainCamera!,
-                        onPictureTaken: (photo) => showTagModal(context, connection, theme, photo)
-                      );
-                    }));
-                  }
+                  showTagModal(theme, connection, navigator);
                 },
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.camera),
-                    Text('Tag'),
-                  ],
-                )
+                child: const Icon(Icons.camera),
               ),
             ],
           ),
@@ -237,35 +215,36 @@ class _InGamePageState extends State<InGamePage> {
     );
   }
 
-  showTagModal(BuildContext context, Connection connection, ThemeData theme, Uint8List photo) {
-    return {
-      showModalBottomSheet(
-        context: context,
-        builder: (context) => EdgePadding(
-          child: Column(
-            children: [
-              Text('Who did you find?', style: theme.textTheme.titleLarge),
-              Expanded(
-                flex: 1,
-                child: ListView(
-                  children: [
-                    for (var player in connection.game!.players.entries)
-                      ListTile(
-                        title: Text(player.value.name),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).pop();
-                          connection.send(ClientMessage.tagPlayer(player.key, photo));
-                        },
-                      ),
-                  ],
-                ),
-              ),        
-            ],
-          ),
-        )
+  Future<dynamic> showTagModal(ThemeData theme, Connection connection, NavigatorState navigator) {
+    return showModalBottomSheet(
+      context: context,
+      builder: (context) => EdgePadding(
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            Text('Who did you find?', style: theme.textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Expanded(
+              flex: 1,
+              child: ListView(
+                children: [
+                  // exclude self
+                  for (var player in connection.game!.players.entries.where((player) => player.key != connection.playerId))
+                    ListTile(
+                      leading: const Icon(Icons.person),
+                      title: Text(player.value.name),
+                      onTap: () {
+                        navigator.pop();
+                        connection.send(ClientMessage.tagPlayer(player.key));
+                      },
+                    ),
+                ],
+              ),
+            ),        
+          ],
+        ),
       )
-    };
+    );
   }
 
   ListView scoreList(Game gameState, Connection connection, ThemeData theme, Function(int, PlayerData) getIconData, Function(int, PlayerData) getColor) {

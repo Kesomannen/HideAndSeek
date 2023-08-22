@@ -2,12 +2,16 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_background/flutter_background.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hide_and_seek/location.dart';
+import 'package:hide_and_seek/notifications.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'message.dart';
 
+const String _serverAddress = 'ws://213.64.180.240:2369/';
 const Duration _posUpdateInterval = Duration(seconds: 5);
 
 enum GameConnectionState {
@@ -43,40 +47,64 @@ class Connection extends ChangeNotifier {
     notifyListeners();
   }
 
-  _serverMessage(String message) {
-    _game?.messages.add(ChatMessage.server(message));
-    notifyListeners();
+  _serverMessage(String message, {Importance importance = Importance.max}) {
+    _chat(ChatMessage.server(message), importance: importance);
   }
 
-  _chat(ChatMessage message) {
+  _chat(ChatMessage message, {Importance importance = Importance.low}) {
     _game?.messages.add(message);
+    
+    if (message.text != null) {
+      if (message.sender == null) {
+        Notifications.show("Hide and Seek", message.text!, importance: importance);
+      } else {
+        Notifications.show("Message from ${message.sender}", message.text!, importance: importance);
+      }
+    }
+
     notifyListeners();
   }
 
   send(ClientMessage message) {
-    _channel?.sink.add(jsonEncode(message));
+    final text = jsonEncode(message);
+    print('Bytes in message: ${text.length * 2}');
+    _channel?.sink.add(text);
   }
 
-  Future<void> connect(String name) async {
+  connect(String name) {
     _channel?.sink.close();
     _playerName = name;
 
+    print("Connecting to server");
+
     _channel = WebSocketChannel.connect(
-      Uri.parse('ws://192.168.1.27:8080/'),
+      Uri.parse(_serverAddress),
     );
 
-    await _channel!.ready;
+    _channel!.ready.then((value) async {
+      send(ClientMessage.connect(name));
 
-    send(ClientMessage.connect(name));
+      if (!await FlutterBackground.initialize(androidConfig: const FlutterBackgroundAndroidConfig(
+        notificationTitle: "Hide and Seek",
+        notificationText: "Running in background",
+      ))) {
+        _snackBarMessage("Background initialization failed!");
+        return;
+      }
+
+      if (!await FlutterBackground.enableBackgroundExecution()) {
+        _snackBarMessage("Background execution failed to enable!");
+      }
+
+      Notifications.show("Hide And Seek", "You are now connected to the server");
+    });
 
     _channel!.stream.listen(_handleEvent);
-
-    while (_state == GameConnectionState.disconnected) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
   }
 
   void _handleEvent(event) {
+    print("Received event: $event");
+
     final json = jsonDecode(event);
     final message = json is String ? ServerMessage.fromString(json) : ServerMessage.fromJson(json);
   
@@ -142,13 +170,17 @@ class Connection extends ChangeNotifier {
         _game?.seeker = message.data['seeker'];
         _game?.state = GameState.playing;
 
+        _serverMessage("Game started!");
         _updatePositionLoop();
+
         notifyListeners();
         break;
       
       case ServerEvent.GameEnded:
         _game?.state = GameState.ended;
         _game?.winner = message.data['winner'];
+
+        _serverMessage("Game ended!");
 
         notifyListeners();
         break;
@@ -173,7 +205,7 @@ class Connection extends ChangeNotifier {
         final tagger = _game!.players[message.data['tagger']]?.name ?? "Unknown";
         final tagged = _game!.players[message.data['tagged']]?.name ?? "Unknown";
         
-        _chat(ChatMessage(text: "$tagger tagged $tagged", image: message.data['photo']));
+        _chat(ChatMessage(text: "$tagger caught $tagged!"));
         notifyListeners();
         break;
     }
@@ -181,23 +213,25 @@ class Connection extends ChangeNotifier {
 
   void _updatePositionLoop() async {
     while (_game != null && _game!.state == GameState.playing) {
-      try {
-        final pos = await determinePosition(); 
-        send(ClientMessage.updatePosition(pos.latitude, pos.longitude));
-        _currentDistance = Geolocator.distanceBetween(pos.latitude, pos.longitude, _game!.x, _game!.y);
-      } on ServiceDisabled {
-        _snackBarMessage("Location service disabled");
-      } on PermissionDenied {
-        _snackBarMessage("No location permission");
-      } on PermissionDeniedForever {
-        _snackBarMessage("Location permission denied forever");
+      if (_game!.seeker != _playerId) {
+        try {
+          final pos = await determinePosition(); 
+          send(ClientMessage.updatePosition(pos.latitude, pos.longitude));
+          _currentDistance = Geolocator.distanceBetween(pos.latitude, pos.longitude, _game!.x, _game!.y);
+        } on ServiceDisabled {
+          _snackBarMessage("Location service disabled");
+        } on PermissionDenied {
+          _snackBarMessage("No location permission");
+        } on PermissionDeniedForever {
+          _snackBarMessage("Location permission denied forever");
+        }
       }
 
       await Future.delayed(_posUpdateInterval);
     }
   }
 
-  void _snackBarMessage(String text) {
+  _snackBarMessage(String text) {
     ScaffoldMessenger.of(_context).showSnackBar(
       SnackBar(
         content: Text(text),

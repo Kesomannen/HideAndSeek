@@ -9,7 +9,7 @@ CameraDescription? mainCamera;
 void initializeCameras() async {
   WidgetsFlutterBinding.ensureInitialized();
   final cameras = await availableCameras();
-  mainCamera = cameras.first;
+  mainCamera = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.back);
 }
 
 class TakePictureScreen extends StatefulWidget {
@@ -51,9 +51,9 @@ class _TakePictureScreenState extends State<TakePictureScreen> {
           return Stack(children: [
             CameraPreview(_controller),
             Positioned(
-              bottom: 0.2,
-              left: 0.2,
-              right: 0.2,
+              bottom: 10,
+              left: 30,
+              right: 30,
               child: FilledGameButton(
                 'Capture',
                 onPressed: () async {

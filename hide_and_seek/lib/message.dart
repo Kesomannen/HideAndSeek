@@ -1,9 +1,4 @@
 // ignore_for_file: constant_identifier_names
-
-import 'dart:convert';
-
-import 'package:flutter/services.dart';
-
 class ClientMessage {
     ClientEvent event;
     Map<String, dynamic> data;
@@ -57,11 +52,10 @@ class ClientMessage {
             'y': y
         };
 
-    ClientMessage.tagPlayer(int playerId, Uint8List photo) :
+    ClientMessage.tagPlayer(int playerId) :
         event = ClientEvent.TagPlayer,
         data = {
             'player': playerId,
-            'photo': base64Encode(photo)
         };
 }
 

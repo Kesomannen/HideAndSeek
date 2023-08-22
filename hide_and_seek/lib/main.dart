@@ -7,7 +7,7 @@ import 'package:hide_and_seek/pages/connected.dart';
 import 'package:hide_and_seek/pages/disconnected.dart';
 import 'package:hide_and_seek/pages/in_game.dart';
 
-void main() {
+void main() async {
   initializeCameras();
   runApp(const MainApp());
 }
@@ -20,7 +20,7 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       title: 'Hide and Seek',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red, brightness: Brightness.dark),
         useMaterial3: true
       ),
       home: ChangeNotifierProvider(

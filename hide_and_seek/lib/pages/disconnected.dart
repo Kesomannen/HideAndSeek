@@ -14,28 +14,13 @@ class DisconnectedPage extends StatefulWidget {
 class _DisconnectedPageState extends State<DisconnectedPage> {
   final controller = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-
-  Future<void>? _connectFuture;
   
   @override
   Widget build(BuildContext context) {
     var connection = Provider.of<Connection>(context);
 
     return EdgePadding(
-      child: FutureBuilder(
-        future: _connectFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.none) {
-            return enterNameForm(connection);
-          } 
-          return const Center(child: CircularProgressIndicator());
-        },
-      ),
-    );
-  }
-
-  Form enterNameForm(Connection connection) {
-    return Form(
+      child: Form(
       key: _formKey,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -55,13 +40,14 @@ class _DisconnectedPageState extends State<DisconnectedPage> {
           const SizedBox(height: 20),
           FilledButton(onPressed: () {
               if (_formKey.currentState!.validate()) {
-                _connectFuture = connection.connect(controller.text);
+                connection.connect(controller.text);
               }
             }, 
             child: const Text('Connect')
           )
         ],
       )
+    )
     );
   }
 

@@ -26,12 +26,12 @@ impl Session {
     }
 
     fn heartbeat(&self, ctx: &mut ws::WebsocketContext<Self>) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |actor, ctx| {
-            if Instant::now().duration_since(actor.hb) > CLIENT_TIMEOUT {
-                actor.error(ctx, "Disconnected: heartbeat failed");
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                act.error(ctx, "Heartbeat failed");
 
-                if let Some(id) = actor.id {
-                    actor.server.do_send(Disconnect { id });
+                if let Some(id) = act.id {
+                    act.server.do_send(Disconnect { id });
                 }
 
                 ctx.stop();

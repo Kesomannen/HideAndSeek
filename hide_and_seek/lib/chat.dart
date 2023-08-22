@@ -38,7 +38,7 @@ class _ChatState extends State<Chat> {
               final message = gameState.messages[reversedIndex];
 
               final senderText = message.sender == null ? null : Text(message.sender!);
-              final subtitleText = message.sender == null ? null : Text(message.text!);
+              final subtitleText = message.text == null ? null : Text(message.text!);
               final image = message.image == null ? null : Image.memory(base64Decode(message.image!));
 
               final isThreeLine = senderText != null && subtitleText != null && image != null;
